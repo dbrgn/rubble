@@ -6,5 +6,5 @@ version = "0.0.0"
 # https://github.com/rust-lang/cargo/issues/5015
 
 [dependencies]
-rubble = { path = "../rubble" }
+rubble = { path = "../rubble", features = ["ring", "nisty"] }
 rubble-nrf5x = { path = "../rubble-nrf5x", features = ["52840"] }
