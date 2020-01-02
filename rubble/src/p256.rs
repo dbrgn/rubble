@@ -185,9 +185,12 @@ mod nisty {
 
 #[cfg(test)]
 mod tests {
-    use ring::{
-        agreement::{agree_ephemeral, EphemeralPrivateKey, UnparsedPublicKey, ECDH_P256},
-        rand::SystemRandom,
+    use {
+        nisty::{Keypair, PublicKey},
+        ring::{
+            agreement::{agree_ephemeral, EphemeralPrivateKey, UnparsedPublicKey, ECDH_P256},
+            rand::SystemRandom,
+        },
     };
 
     /// Performs ECDH key agreement between ring and nisty.
@@ -235,6 +238,9 @@ mod tests {
     }
 
     /// Performs key agreement between the ring and nisty `P256Provider` implementations.
+    ///
+    /// This uses the Rubble API, so the `ring` and `nisty` Cargo features must be enabled for the
+    /// test to work.
     #[test]
     #[cfg(all(feature = "ring", feature = "nisty"))]
     fn ring_nisty_agreement() {
@@ -281,5 +287,72 @@ mod tests {
     #[ignore]
     fn ring_nisty_agreement() {
         panic!("this test requires the `ring` and `nisty` features to be enabled");
+    }
+
+    /// Uses nisty to verify the Bluetooth test vectors.
+    ///
+    /// See "7.1.2 P-256 sample data" in the spec.
+    #[test]
+    fn nisty_test_vectors() {
+        fn parse_into(mut slice: &mut [u8], s: &str) {
+            for s_word in s.split_whitespace() {
+                assert_eq!(s_word.len(), 8);
+
+                let target = &mut slice[..4];
+                for i in 0..4 {
+                    target[i] = u8::from_str_radix(&s_word[i * 2..i * 2 + 2], 16).unwrap();
+                }
+                slice = &mut slice[4..];
+            }
+
+            assert!(slice.is_empty());
+        }
+
+        // Strings copied straight from the spec
+        const PRIV_A: &str =
+            "3f49f6d4 a3c55f38 74c9b3e3 d2103f50 4aff607b eb40b799 5899b8a6 cd3c1abd";
+        const PUB_A_X: &str =
+            "20b003d2 f297be2c 5e2c83a7 e9f9a5b9 eff49111 acf4fddb cc030148 0e359de6";
+        const PUB_A_Y: &str =
+            "dc809c49 652aeb6d 63329abf 5a52155c 766345c2 8fed3024 741c8ed0 1589d28b";
+
+        const PRIV_B: &str =
+            "55188b3d 32f6bb9a 900afcfb eed4e72a 59cb9ac2 f19d7cfb 6b4fdd49 f47fc5fd";
+        const PUB_B_X: &str =
+            "1ea1f0f0 1faf1d96 09592284 f19e4c00 47b58afd 8615a69f 559077b2 2faaa190";
+        const PUB_B_Y: &str =
+            "4c55f33e 429dad37 7356703a 9ab85160 472d1130 e28e3676 5f89aff9 15b1214a";
+
+        const DHKEY: &str =
+            "ec0234a3 57c8ad05 341010a6 0a397d9b 99796b13 b4f866f1 868d34f3 73bfa698";
+
+        let mut priv_a = [0; 32];
+        parse_into(&mut priv_a, PRIV_A);
+        let key_a = Keypair::try_from_bytes(&priv_a).unwrap();
+
+        let mut pub_a_bytes = [0; 64];
+        parse_into(&mut pub_a_bytes[..32], PUB_A_X);
+        parse_into(&mut pub_a_bytes[32..], PUB_A_Y);
+        let pub_a = PublicKey::try_from_bytes(&pub_a_bytes).unwrap();
+
+        assert_eq!(key_a.public, pub_a);
+
+        let mut priv_b = [0; 32];
+        parse_into(&mut priv_b, PRIV_B);
+        let key_b = Keypair::try_from_bytes(&priv_b).unwrap();
+
+        let mut pub_b_bytes = [0; 64];
+        parse_into(&mut pub_b_bytes[..32], PUB_B_X);
+        parse_into(&mut pub_b_bytes[32..], PUB_B_Y);
+        let pub_b = PublicKey::try_from_bytes(&pub_b_bytes).unwrap();
+
+        assert_eq!(key_b.public, pub_b);
+
+        let shared_a = key_a.secret.agree(&pub_b).unwrap();
+        let shared_b = key_b.secret.agree(&pub_a).unwrap();
+        let mut dhkey = [0; 32];
+        parse_into(&mut dhkey, DHKEY);
+        assert_eq!(shared_a, shared_b);
+        assert_eq!(shared_a.as_bytes(), &dhkey);
     }
 }
