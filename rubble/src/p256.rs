@@ -14,9 +14,6 @@
 /// A P-256 public key (point on the curve) in uncompressed format.
 pub struct PublicKey(pub [u8; 64]);
 
-/// A P-256 signature.
-pub struct Signature(pub [u8; 64]);
-
 /// A shared secret resulting from an ECDH key agreement.
 pub struct SharedSecret(pub [u8; 32]);
 
