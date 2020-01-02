@@ -40,6 +40,7 @@ mod error;
 pub mod gatt;
 pub mod l2cap;
 pub mod link;
+pub mod p256;
 pub mod phy;
 pub mod security;
 pub mod time;
