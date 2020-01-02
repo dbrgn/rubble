@@ -1,20 +1,42 @@
 //! P-256 crypto operations.
 //!
-//! BLE uses P-256 for pairing (also see the `security` module). This module provides an interface
-//! for plugging in different implementations of the P-256 operations.
+//! BLE uses P-256 for pairing. This module provides an interface for plugging in different
+//! implementations of the P-256 operations. The main consumer of this module is the [`security`]
+//! module; refer to that for more info about pairing and encryption in BLE.
 //!
-//! The primary trait in this module is `P256Provider`. Rubble comes with 2 built-in implementations
-//! of that trait, which can be enabled via these Cargo features:
+//! The primary trait in this module is [`P256Provider`]. Rubble comes with 2 built-in
+//! implementations of that trait, which can be enabled via these Cargo features:
 //!
-//! * `ring`: Enables the `RingProvider` and `RingSecretKey` types, which use the *ring* library.
-//!   Note that *ring* does not support `#![no_std]` operation, so this is mostly useful for tests.
-//! * `nisty`: Enables `NistyProvider` and `NistySecretKey`, which use the Nisty crate and micro-ecc
-//!   library. Nisty currently supports Cortex-M4 and Cortex-M33 MCUs.
+//! * **`ring`**: Enables the [`RingProvider`] and [`RingSecretKey`] types, which use the
+//!   [*ring* library][ring]. Note that *ring* does not support `#![no_std]` operation, so this is
+//!   mostly useful for tests and other non-embedded usage.
+//! * **`nisty`**: Enables [`NistyProvider`] and [`NistySecretKey`], which use the [nisty] crate and
+//!   [micro-ecc] library. Nisty currently supports Cortex-M4 and Cortex-M33 MCUs.
+//!
+//! [`security`]: ../security/index.html
+//! [`P256Provider`]: trait.P256Provider.html
+//! [`RingProvider`]: struct.RingProvider.html
+//! [`RingSecretKey`]: struct.RingSecretKey.html
+//! [ring]: https://github.com/briansmith/ring
+//! [`NistyProvider`]: struct.NistyProvider.html
+//! [`NistySecretKey`]: struct.NistySecretKey.html
+//! [nisty]: https://github.com/nickray/nisty
+//! [micro-ecc]: https://github.com/kmackay/micro-ecc
 
 /// A P-256 public key (point on the curve) in uncompressed format.
+///
+/// The encoding is as specified in *[SEC 1: Elliptic Curve Cryptography]*, but without the leading
+/// byte: The first 32 Bytes are the big-endian encoding of the point's X coordinate, and the
+/// remaining 32 Bytes are the Y coordinate, encoded the same way.
+///
+/// [SEC 1: Elliptic Curve Cryptography]: http://www.secg.org/sec1-v2.pdf
 pub struct PublicKey(pub [u8; 64]);
 
 /// A shared secret resulting from an ECDH key agreement.
+///
+/// This is returned by implementations of [`SecretKey::agree`].
+///
+/// [`SecretKey::agree`]: trait.SecretKey.html#tymethod.agree
 pub struct SharedSecret(pub [u8; 32]);
 
 /// Trait for P-256 operation providers.
@@ -27,8 +49,17 @@ pub trait P256Provider {
 }
 
 /// Secret key operations required by Rubble.
+///
+/// This API imposes no requirements on the representation or location of secret keys. This means
+/// that it should be possible to implement this trait even for keys stored in some secure key
+/// storage like a smartcard.
 pub trait SecretKey: Sized {
-    /// Performs ECDH key agreement using an ephemeral secret key `self`.
+    /// Performs ECDH key agreement using an ephemeral secret key `self` and the public key of the
+    /// other party.
+    ///
+    /// Here, "ephemeral" just means that this method takes `self` by value. This allows
+    /// implementing `SecretKey` for providers that enforce single-use keys using Rust ownership
+    /// (like *ring*).
     fn agree(self, foreign_key: &PublicKey) -> SharedSecret;
 }
 
@@ -203,6 +234,7 @@ mod tests {
         assert_eq!(r_shared, n_shared);
     }
 
+    /// Performs key agreement between the ring and nisty `P256Provider` implementations.
     #[test]
     #[cfg(all(feature = "ring", feature = "nisty"))]
     fn ring_nisty_agreement() {
