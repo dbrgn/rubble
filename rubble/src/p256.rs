@@ -265,6 +265,9 @@ mod nisty {
         rand_core::{CryptoRng, RngCore},
     };
 
+    /// A P-256 provider using the [nisty] crate.
+    ///
+    /// [nisty]: https://github.com/nickray/nisty
     pub struct NistyProvider {}
 
     impl NistyProvider {
