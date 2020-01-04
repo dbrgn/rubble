@@ -23,13 +23,20 @@
 //! [nisty]: https://github.com/nickray/nisty
 //! [micro-ecc]: https://github.com/kmackay/micro-ecc
 
+use core::fmt;
+
 /// A P-256 public key (point on the curve) in uncompressed format.
 ///
 /// The encoding is as specified in *[SEC 1: Elliptic Curve Cryptography]*, but without the leading
 /// byte: The first 32 Bytes are the big-endian encoding of the point's X coordinate, and the
 /// remaining 32 Bytes are the Y coordinate, encoded the same way.
 ///
+/// Note that this type does not provide any validity guarantees (unlike [`PrivateKey`]
+/// implementors): It is possible to represent invalid public P-256 keys, such as the point at
+/// infinity, with this type. The other APIs in this module are designed to take that into account.
+///
 /// [SEC 1: Elliptic Curve Cryptography]: http://www.secg.org/sec1-v2.pdf
+/// [`PrivateKey`]: trait.PrivateKey.html
 pub struct PublicKey(pub [u8; 64]);
 
 /// A shared secret resulting from an ECDH key agreement.
@@ -39,12 +46,34 @@ pub struct PublicKey(pub [u8; 64]);
 /// [`SecretKey::agree`]: trait.SecretKey.html#tymethod.agree
 pub struct SharedSecret(pub [u8; 32]);
 
+/// An error returned by [`SecretKey::agree`].
+///
+/// [`SecretKey::agree`]: trait.SecretKey.html#tymethod.agree
+#[derive(Debug)]
+pub struct InvalidPublicKey {}
+
+impl InvalidPublicKey {
+    /// Creates a new `InvalidPublicKey` error.
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+impl fmt::Display for InvalidPublicKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("invalid public key")
+    }
+}
+
 /// Trait for P-256 operation providers.
 pub trait P256Provider {
     /// Provider-defined secret key type.
     type SecretKey: SecretKey;
 
     /// Generates a P-256 key pair using cryptographically strong randomness.
+    ///
+    /// Implementors must ensure that they only return valid private/public key pairs from this
+    /// method.
     fn generate_keypair(&mut self) -> (Self::SecretKey, PublicKey);
 }
 
@@ -60,7 +89,11 @@ pub trait SecretKey: Sized {
     /// Here, "ephemeral" just means that this method takes `self` by value. This allows
     /// implementing `SecretKey` for providers that enforce single-use keys using Rust ownership
     /// (like *ring*).
-    fn agree(self, foreign_key: &PublicKey) -> SharedSecret;
+    ///
+    /// # Errors
+    ///
+    /// If `foreign_key` is an invalid public key, implementors must return an error.
+    fn agree(self, foreign_key: &PublicKey) -> Result<SharedSecret, InvalidPublicKey>;
 }
 
 #[cfg(feature = "ring")]
@@ -112,7 +145,7 @@ mod ring {
     pub struct RingSecretKey(EphemeralPrivateKey);
 
     impl SecretKey for RingSecretKey {
-        fn agree(self, foreign_key: &PublicKey) -> SharedSecret {
+        fn agree(self, foreign_key: &PublicKey) -> Result<SharedSecret, InvalidPublicKey> {
             // Convert `foreign_key` to ring's format:
             let mut encoded = [0; 65];
             encoded[0] = 0x04; // indicates uncompressed format (see RFC 5480)
@@ -120,13 +153,12 @@ mod ring {
             let public = UnparsedPublicKey::new(&ECDH_P256, &encoded[..]);
 
             let mut shared_secret = [0; 32];
-            agree_ephemeral(self.0, &public, (), |b| {
+            agree_ephemeral(self.0, &public, InvalidPublicKey::new(), |b| {
                 shared_secret.copy_from_slice(b);
                 Ok(())
-            })
-            .unwrap();
+            })?;
 
-            SharedSecret(shared_secret)
+            Ok(SharedSecret(shared_secret))
         }
     }
 }
@@ -175,10 +207,15 @@ mod nisty {
     pub struct NistySecretKey(::nisty::SecretKey);
 
     impl SecretKey for NistySecretKey {
-        fn agree(self, foreign_key: &PublicKey) -> SharedSecret {
-            let public = ::nisty::PublicKey::try_from_bytes(&foreign_key.0).unwrap();
+        fn agree(self, foreign_key: &PublicKey) -> Result<SharedSecret, InvalidPublicKey> {
+            let public = ::nisty::PublicKey::try_from_bytes(&foreign_key.0)
+                .map_err(|_| InvalidPublicKey::new())?;
+
+            // `agree` only returns an error if the public key is the point at infinity, which is
+            // ruled out by the conversion above.
             let shared_secret = self.0.agree(&public).unwrap().to_bytes();
-            SharedSecret(shared_secret)
+
+            Ok(SharedSecret(shared_secret))
         }
     }
 }
@@ -276,8 +313,8 @@ mod tests {
         let mut nisty = NistyProvider::new(Rng);
         let (n_secret, n_public) = nisty.generate_keypair();
 
-        let r_shared = r_secret.agree(&n_public);
-        let n_shared = n_secret.agree(&r_public);
+        let r_shared = r_secret.agree(&n_public).unwrap();
+        let n_shared = n_secret.agree(&r_public).unwrap();
 
         assert_eq!(r_shared.0, n_shared.0);
     }
