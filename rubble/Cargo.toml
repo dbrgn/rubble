@@ -19,8 +19,7 @@ rand_core = "0.5.1"
 
 # The `nisty` feature can be enabled to provide P-256 signature support for Cortex-M4 and M33 chips.
 [dependencies.nisty]
-git = "https://github.com/nickray/nisty.git"
-rev = "a59a881"
+version = "0.1.0-alpha.2"
 default-features = false
 optional = true
 
@@ -40,5 +39,5 @@ optional = true
 ring = "0.16.9"
 
 [dev-dependencies.nisty]
-git = "https://github.com/nickray/nisty.git"
-rev = "a59a881"
+version = "0.1.0-alpha.2"
+default-features = false
