@@ -1,6 +1,9 @@
 language: rust
 rust: stable
 
+# We need somewhat recent libclang packages
+dist: bionic
+
 install:
   - rustup target add thumbv7em-none-eabi
   - rustup target add thumbv6m-none-eabi
